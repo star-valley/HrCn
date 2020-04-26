@@ -6,6 +6,13 @@ struct Defect {
 	CvPoint valley;
 	double depth;
 };
+int mod(int a, int b)
+{
+	if (a >= 0)
+		return a % b;
+	else
+		return a % b + b;
+}
 
 class Hull {
 public:
@@ -19,7 +26,7 @@ public:
 private:
 	int length;
 	vector<CvPoint> src;
-	vector<int> ids;
+	vector<int> srci;
 	vector<Defect> defects;
 
 	int N;
@@ -51,8 +58,8 @@ void Hull::getdefects(IplImage* imdefects)
 	{
 		front = src[i];
 		rear = src[i + 1];
-		idf = ids[i];
-		idr = ids[i + 1];
+		idf = srci[i];
+		idr = srci[i + 1];
 		defect.front = front;
 		defect.rear = rear;
 		int xfr = rear.x - front.x;
@@ -131,72 +138,70 @@ void Hull::part(int idS, int idE)
 	CvPoint Vs = *(CvPoint*)cvGetSeqElem(contour, idS);
 	CvPoint Ve = *(CvPoint*)cvGetSeqElem(contour, idE);
 	src.push_back(Vs);
-	ids.push_back(idS % N);
+	srci.push_back(idS);
 	length++;
-	int l0 = length;
-	idE = idE ? idE : N;
-	if (idE - idS <= 1)
-		return;
+	int lstart = length;
 
 	int xse = Ve.x - Vs.x;
 	int yse = -1 * (Ve.y - Vs.y);
-	CvPoint prs = *(CvPoint*)cvGetSeqElem(contour, 0);
-	int idx = idS;
-	while (idx <= idE)
+	CvPoint prs, top, sec;
+	int idx = (idS + 1) % N;//注意索引的循环性
+	while (idx != (idE + 1) % N)
 	{
-		if (idx == N)
-			prs = Ve;
-		else
-			prs = *(CvPoint*)cvGetSeqElem(contour, idx);
-		int xsp = prs.x - Vs.x;
-		int ysp = -1 * (prs.y - Vs.y);
+		prs = *(CvPoint*)cvGetSeqElem(contour, idx);
+
+		/*判断历经点是否在闭R内*/
+		int xsp = prs.x - Vs.x, ysp = -1 * (prs.y - Vs.y);
 		int crs_hypo = xsp * yse - xse * ysp;
-		int cls_hypo = crs_hypo >= 0 ? 1 : 0;//泛同就保留8
+		int cls_hypo = crs_hypo >= 0 ? 1 : 0;//在闭R外则跳过
 		if (!cls_hypo)
 		{
-			idx++;
+			idx = (idx + 1) % N;
 			continue;
 		}
 
-		if (length == l0)
+		/*历经点在闭R内且栈只含始点则压入*/
+		if (length == lstart)
 		{
 			src.push_back(prs);
-			ids.push_back(idx % N);
+			srci.push_back(idx);
 			length++;
-			idx++;
+			idx = (idx + 1) % N;
 			continue;
 		}
 
-		int x23 = prs.x - src[length - 1].x;
-		int y23 = -1 * (prs.y - src[length - 1].y);
-		int x13 = prs.x - src[length - 2].x;
-		int y13 = -1 * (prs.y - src[length - 2].y);
-		int x12 = src[length - 1].x - src[length - 2].x;
-		int y12 = -1 * (src[length - 1].y - src[length - 2].y);
-		int crs = x13 * y12 - x12 * y13;
-		int cl = crs >= 0 ? 1 : 0;//泛顺就弹
-		//建议在循环外定义
-		//src改成索引集可以减小内存占用
-		if (cl)
+		/*根据栈顶点的凸凹性和顶历线的单调性决定顶历两点的去留*/
+		top = src[length - 1], sec = src[length - 2];
+		int x23 = prs.x - top.x, y23 = -1 * (prs.y - top.y);
+		int x13 = prs.x - sec.x, y13 = -1 * (prs.y - sec.y);
+		int x12 = top.x - sec.x, y12 = -1 * (top.y - sec.y);
+		int crs_vtx = x13 * y12 - x12 * y13;
+		int cl_vtx = crs_vtx >= 0 ? 1 : 0;
+		//顶历向量对次顶向量泛顺，即栈顶点泛凹，则弹出栈顶点
+		//注意高阶凹的现象，即删去多边形顶点后，凸顶点可能变成新多边形的凹顶点
+		//因此栈次点的凸凹性尚不确定，故只弹出栈顶点而不压入历经点，且不步进
+		if (cl_vtx)
 		{
-			//为应对高阶凹，只弹不压，且不步进
 			src.pop_back();
-			ids.pop_back();
+			srci.pop_back();
 			length--;
 		}
-		else if (x23 * xse >= 0 && y23 * yse >= 0)//单调严逆就压，非单调严逆就过
+		//顶历向量对次顶向量严逆，且顶历线单调性与斜边相同，则压入历经点
+		else if (x23 * xse >= 0 && y23 * yse >= 0)
 		{
 			src.push_back(prs);
-			ids.push_back(idx % N);
+			srci.push_back(idx);
 			length++;
-			idx++;
+			idx = (idx + 1) % N;
 		}
+		//顶历向量对次顶向量严逆，但顶历线单调性与斜边相反，则跳过历经点
+		//由凸多边形的定义易证非单调点不属于凸包，但排除之并不是出于简便
+		//而是为防止局部凸的凹多边形，即复杂多边形的出现
 		else
-			idx++;
+			idx = (idx + 1) % N;
 	}
 
-	//干脆全重录,反正也没什么影响
-	//以后要遍历src和ids就遍历到length-2就行了
+	//直极值点重录，src和srci遍历到length-2即可
 }
 
 void Hull::gethull(IplImage* imhull)
