@@ -30,7 +30,6 @@ private:
 	int counter;
 
 	void part(int idS, int idE);
-	void draw(IplImage* imhull);
 };
 
 Hull::Hull(CvSeq* contour)
@@ -40,14 +39,6 @@ Hull::Hull(CvSeq* contour)
 	this->contour = contour;
 	//浅拷贝，不过不改变contour，没关系
 	N = contour->total;
-}
-
-void Hull::draw(IplImage* imhull)
-{
-	uchar R, G, B;
-	uchar light = (uchar)255, dark = (uchar)0;
-	for (int i = 0; i < length - 1; i++)
-		drline(imhull, &src[i], &src[i + 1]);
 }
 
 void Hull::getdefects(IplImage* imdefects)
@@ -244,7 +235,8 @@ void Hull::gethull(IplImage* imhull)
 	part(idR, idT);
 	part(idT, idL);
 
-	draw(imhull);
+	for (int i = 0; i < length - 1; i++)
+		drline(imhull, &src[i], &src[i + 1]);
 }
 
 vector<float> HullDscr(CvSeq* contour, CvPoint* Dweb, IplImage* imhull, IplImage* imdefects)
